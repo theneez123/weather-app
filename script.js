@@ -7,7 +7,12 @@ const suggestions = document.querySelector(".suggestions");
 const searchBtn = document.querySelector(".search-button");
 
 /*********  Units dropdown functionality *********/
-// Open/Close Units menu
+let unitSettings = {
+  temperature: "C",
+  wind: "kmh",
+  precipitation: "mm",
+};
+
 toggleBtn.addEventListener("click", () => {
   dropdown.classList.toggle("show");
 });
@@ -25,6 +30,23 @@ items.forEach((item) => {
       .querySelectorAll(".dropdown-item")
       .forEach((i) => i.classList.remove("active"));
     item.classList.add("active");
+
+    const text = item.textContent.trim();
+    if (text.includes("Celsius")) unitSettings.temperature = "C";
+    else if (text.includes("Fahrenheit")) unitSettings.temperature = "F";
+    else if (text.includes("km/h")) unitSettings.wind = "kmh";
+    else if (text.includes("mph")) unitSettings.wind = "mph";
+    else if (text.includes("Millimeters")) unitSettings.precipitation = "mm";
+    else if (text.includes("Inches")) unitSettings.precipitation = "in";
+
+    if (globalWeatherData) {
+      updateWeatherCard(globalWeatherData.current, globalWeatherData.name);
+      updateDailyForecast(globalWeatherData.daily);
+      updateHourlyForecast(
+        globalWeatherData.hourly,
+        document.getElementById("day-select").value
+      );
+    }
   });
 });
 
@@ -113,6 +135,9 @@ searchInput.addEventListener("keypress", (e) => {
 });
 
 /******** Fetch weather ********/
+let globalHourlyData = null;
+let globalDailyData = null;
+let globalWeatherData = null;
 
 async function getWeather(lat, lon, name) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code&hourly=temperature_2m,weather_code&timezone=auto`;
@@ -127,9 +152,14 @@ async function getWeather(lat, lon, name) {
 
     globalHourlyData = data.hourly;
     globalDailyData = data.daily;
+    globalWeatherData = {
+      current: data.current,
+      daily: data.daily,
+      hourly: data.hourly,
+      name,
+    };
 
-    const current = data.current;
-    updateWeatherCard(current, name);
+    updateWeatherCard(data.current, name);
     updateDailyForecast(data.daily);
     populateDayDropdown(data.daily);
     updateHourlyForecast(data.hourly, 0);
@@ -139,7 +169,7 @@ async function getWeather(lat, lon, name) {
       <div class="wrong">
         <img src="./assets/images/icon-error.svg" alt="Error" />
         <h1>Something went wrong</h1>
-        <p>We couldn't connect to the weather API. Please try again in a few moment.</p>
+        <p>We couldn't connect to the weather API. Please try again in a few moments.</p>
         <button class="retry" onclick="window.location.reload()">
           <img src="./assets/images/icon-retry.svg"/>Retry
         </button>
@@ -160,23 +190,24 @@ function updateWeatherCard(current, name) {
   });
   document.querySelector(".weather-header p").textContent = formattedDate;
 
-  document.querySelector(".temperature").textContent = `${Math.round(
-    current.temperature_2m
-  )}°`;
+  const temp = convertTemperature(current.temperature_2m);
+  document.querySelector(".temperature").textContent = `${temp}°`;
 
   const icon = getWeatherIcon(current.weather_code);
   document.querySelector(".weather-icon").src = icon;
 
-  document.getElementById("feelslike").innerHTML = `${Math.round(
+  document.getElementById("feelslike").innerHTML = `${convertTemperature(
     current.apparent_temperature
-  )}°C`;
+  )}°${unitSettings.temperature}`;
   document.getElementById(
     "humidity"
   ).innerHTML = `${current.relative_humidity_2m}%`;
-  document.getElementById("wind").innerHTML = `${current.wind_speed_10m} km/h`;
-  document.getElementById(
-    "precipitation"
-  ).innerHTML = `${current.precipitation} mm`;
+  document.getElementById("wind").innerHTML = `${convertWind(
+    current.wind_speed_10m
+  )} ${unitSettings.wind === "kmh" ? "km/h" : "mph"}`;
+  document.getElementById("precipitation").innerHTML = `${convertPrecip(
+    current.precipitation
+  )} ${unitSettings.precipitation}`;
 }
 
 function updateDailyForecast(daily) {
@@ -185,8 +216,8 @@ function updateDailyForecast(daily) {
   for (let i = 0; i < daily.time.length; i++) {
     const date = new Date(daily.time[i]);
     const weekday = date.toLocaleDateString("en-US", { weekday: "short" });
-    const max = Math.round(daily.temperature_2m_max[i]);
-    const min = Math.round(daily.temperature_2m_min[i]);
+    const max = convertTemperature(daily.temperature_2m_max[i]);
+    const min = convertTemperature(daily.temperature_2m_min[i]);
     const icon = getWeatherIcon(daily.weather_code[i]);
 
     container.innerHTML += `
@@ -198,12 +229,9 @@ function updateDailyForecast(daily) {
   }
 }
 
-let globalHourlyData = null;
-let globalDailyData = null;
-
 function populateDayDropdown(daily) {
   const daySelect = document.getElementById("day-select");
-  if (!daySelect) return; // In case the element doesn't exist yet
+  if (!daySelect) return;
   daySelect.innerHTML = "";
 
   daily.time.forEach((dateStr, index) => {
@@ -241,7 +269,7 @@ function updateHourlyForecast(hourly, dayIndex = 0) {
         hour: "numeric",
         hour12: true,
       });
-      const temp = Math.round(hourly.temperature_2m[i]);
+      const temp = convertTemperature(hourly.temperature_2m[i]);
       const icon = getWeatherIcon(hourly.weather_code[i]);
 
       container.innerHTML += `
@@ -263,6 +291,22 @@ function getWeatherIcon(code) {
   if ([51, 61, 80].includes(code)) return "./assets/images/icon-rain.webp";
   if ([71, 85].includes(code)) return "./assets/images/icon-snow.webp";
   return "./assets/images/icon-sunny.webp";
+}
+
+/******** Unit Conversion Functions ********/
+function convertTemperature(tempC) {
+  if (unitSettings.temperature === "F") return Math.round((tempC * 9) / 5 + 32);
+  return Math.round(tempC);
+}
+
+function convertWind(kmh) {
+  if (unitSettings.wind === "mph") return Math.round(kmh * 0.621371);
+  return Math.round(kmh);
+}
+
+function convertPrecip(mm) {
+  if (unitSettings.precipitation === "in") return (mm / 25.4).toFixed(2);
+  return Math.round(mm);
 }
 
 function showLoadingState() {
@@ -290,7 +334,7 @@ function showLoadingState() {
   ).innerHTML = `<span class="loading-placeholder">--</span>`;
 
   document.querySelector(".daily-container").innerHTML = `
-  <div class="day loading-placeholder" style="height:150px;width:80px;"></div>
+    <div class="day loading-placeholder" style="height:150px;width:80px;"></div>
     <div class="day loading-placeholder" style="height:150px;width:80px;"></div>
     <div class="day loading-placeholder" style="height:150px;width:80px;"></div>
     <div class="day loading-placeholder" style="height:150px;width:80px;"></div>
@@ -300,18 +344,13 @@ function showLoadingState() {
   `;
 
   document.querySelector(".hourly-forecast").innerHTML = `
-         <div class="hour-header">
-            <p>Hourly forecast</p>
-            <select id="day-select">-</select>
-          </div>
-  <div id= "hourly-container">
-    <div class="hour loading-placeholder" style="height:40px;width:90%;"></div>
-    <div class="hour loading-placeholder" style="height:40px;width:90%;"></div>
-    <div class="hour loading-placeholder" style="height:40px;width:90%;"></div>
-    <div class="hour loading-placeholder" style="height:40px;width:90%;"></div>
-    <div class="hour loading-placeholder" style="height:40px;width:90%;"></div>
-    <div class="hour loading-placeholder" style="height:40px;width:90%;"></div>
-    <div class="hour loading-placeholder" style="height:40px;width:90%;"></div>
-    <div class="hour loading-placeholder" style="height:40px;width:90%;"></div>
-    </div> `;
+    <div class="hour-header">
+      <p>Hourly forecast</p>
+      <select id="day-select">-</select>
+    </div>
+    <div id="hourly-container">
+      <div class="hour loading-placeholder" style="height:40px;width:90%;"></div>
+      <div class="hour loading-placeholder" style="height:40px;width:90%;"></div>
+      <div class="hour loading-placeholder" style="height:40px;width:90%;"></div>
+    </div>`;
 }

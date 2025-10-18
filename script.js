@@ -13,6 +13,11 @@ let unitSettings = {
   precipitation: "mm",
 };
 
+const savedUnits = localStorage.getItem("unitSettings");
+if (savedUnits) {
+  unitSettings = JSON.parse(savedUnits);
+}
+
 toggleBtn.addEventListener("click", () => {
   dropdown.classList.toggle("show");
 });
@@ -39,6 +44,8 @@ items.forEach((item) => {
     else if (text.includes("Millimeters")) unitSettings.precipitation = "mm";
     else if (text.includes("Inches")) unitSettings.precipitation = "in";
 
+    localStorage.setItem("unitSettings", JSON.stringify(unitSettings));
+
     if (globalWeatherData) {
       updateWeatherCard(globalWeatherData.current, globalWeatherData.name);
       updateDailyForecast(globalWeatherData.daily);
@@ -48,6 +55,75 @@ items.forEach((item) => {
       );
     }
   });
+});
+
+/********  Switch to Imperial / Metric toggle ********/
+const switchBtn = dropdown.querySelector(".dropdown-section .dropdown-item");
+
+switchBtn.addEventListener("click", () => {
+  const isImperial = switchBtn.textContent.includes("Imperial");
+
+  if (isImperial) {
+    // Switch to Imperial units
+    unitSettings = {
+      temperature: "F",
+      wind: "mph",
+      precipitation: "in",
+    };
+    switchBtn.textContent = "Switch to Metric";
+
+    document
+      .querySelectorAll(".dropdown-item")
+      .forEach((i) => i.classList.remove("active"));
+    document
+      .querySelectorAll(".dropdown-section")[1]
+      .querySelectorAll(".dropdown-item")[1]
+      .classList.add("active");
+    document
+      .querySelectorAll(".dropdown-section")[2]
+      .querySelectorAll(".dropdown-item")[1]
+      .classList.add("active");
+    document
+      .querySelectorAll(".dropdown-section")[3]
+      .querySelectorAll(".dropdown-item")[1]
+      .classList.add("active");
+  } else {
+    // Switch to Metric units
+    unitSettings = {
+      temperature: "C",
+      wind: "kmh",
+      precipitation: "mm",
+    };
+    switchBtn.textContent = "Switch to Imperial";
+
+    // Update active states
+    document
+      .querySelectorAll(".dropdown-item")
+      .forEach((i) => i.classList.remove("active"));
+    document
+      .querySelectorAll(".dropdown-section")[1]
+      .querySelectorAll(".dropdown-item")[0]
+      .classList.add("active");
+    document
+      .querySelectorAll(".dropdown-section")[2]
+      .querySelectorAll(".dropdown-item")[0]
+      .classList.add("active");
+    document
+      .querySelectorAll(".dropdown-section")[3]
+      .querySelectorAll(".dropdown-item")[0]
+      .classList.add("active");
+  }
+
+  localStorage.setItem("unitSettings", JSON.stringify(unitSettings));
+
+  if (globalWeatherData) {
+    updateWeatherCard(globalWeatherData.current, globalWeatherData.name);
+    updateDailyForecast(globalWeatherData.daily);
+    updateHourlyForecast(
+      globalWeatherData.hourly,
+      document.getElementById("day-select").value
+    );
+  }
 });
 
 /********  Search functionality *********/
@@ -106,6 +182,10 @@ async function fetchCities(query) {
         name = item.dataset.name;
         searchInput.value = name;
         suggestions.innerHTML = "";
+        localStorage.setItem(
+          "lastSearchedLocation",
+          JSON.stringify({ lat: lat, lon: lon, name: name })
+        );
       });
     });
   } catch (error) {
@@ -114,7 +194,6 @@ async function fetchCities(query) {
   }
 }
 
-// Search Button
 searchBtn.addEventListener("click", () => {
   if (!lat || !lon) {
     alert("Please select a city from the suggestions first!");
@@ -169,7 +248,7 @@ async function getWeather(lat, lon, name) {
       <div class="wrong">
         <img src="./assets/images/icon-error.svg" alt="Error" />
         <h1>Something went wrong</h1>
-        <p>We couldn't connect to the weather API. Please try again in a few moments.</p>
+        <p>We couldn't connect to the weather API. Please try again later.</p>
         <button class="retry" onclick="window.location.reload()">
           <img src="./assets/images/icon-retry.svg"/>Retry
         </button>
@@ -179,7 +258,8 @@ async function getWeather(lat, lon, name) {
 
 /******** Update UI ********/
 function updateWeatherCard(current, name) {
-  document.querySelector(".weather-header h1").textContent = name;
+  const locationTitle = document.querySelector(".weather-header h1");
+  locationTitle.textContent = name;
 
   const date = new Date(current.time);
   const formattedDate = date.toLocaleDateString("en-US", {
@@ -293,7 +373,7 @@ function getWeatherIcon(code) {
   return "./assets/images/icon-sunny.webp";
 }
 
-/******** Unit Conversion Functions ********/
+/******** Unit Conversion ********/
 function convertTemperature(tempC) {
   if (unitSettings.temperature === "F") return Math.round((tempC * 9) / 5 + 32);
   return Math.round(tempC);
@@ -309,6 +389,7 @@ function convertPrecip(mm) {
   return Math.round(mm);
 }
 
+/******** Loading UI ********/
 function showLoadingState() {
   const mainContainer = document.querySelector(".main-container");
   mainContainer.style.display = "flex";
@@ -319,7 +400,6 @@ function showLoadingState() {
   document.querySelector(
     ".weather-header p"
   ).innerHTML = `<span class="loading-placeholder">Loading...</span>`;
-
   document.getElementById(
     "feelslike"
   ).innerHTML = `<span class="loading-placeholder">--</span>`;
@@ -354,3 +434,42 @@ function showLoadingState() {
       <div class="hour loading-placeholder" style="height:40px;width:90%;"></div>
     </div>`;
 }
+
+/******** Load last searched location ********/
+document.addEventListener("DOMContentLoaded", function () {
+  const savedLocation = localStorage.getItem("lastSearchedLocation");
+  if (savedLocation) {
+    const { lat, lon, name: locationName } = JSON.parse(savedLocation);
+    getWeather(lat, lon, locationName);
+  } else {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const lat = position.coords.latitude;
+          const lon = position.coords.longitude;
+          let locationName = "Current Location";
+          try {
+            const reverseUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`;
+            const res = await fetch(reverseUrl);
+            if (res.ok) {
+              const data = await res.json();
+              if (data.address && data.address.city && data.address.country) {
+                locationName = `${data.address.city}, ${data.address.country}`;
+              } else if (data.display_name) {
+                locationName = data.display_name;
+              }
+            }
+          } catch (error) {
+            console.error("Reverse geocoding error:", error);
+          }
+          getWeather(lat, lon, locationName);
+        },
+        (error) => {
+          console.error("Geolocation error:", error);
+        }
+      );
+    } else {
+      console.error("Geolocation not supported");
+    }
+  }
+});
